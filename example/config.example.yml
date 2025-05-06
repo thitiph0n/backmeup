@@ -1,0 +1,35 @@
+version: "1.0"
+server:
+  enabled: true
+  port: 8080
+
+storage:
+  type: local
+  local:
+    directory: /path/to/storage
+    max_size: 100GB
+
+jobs:
+  - name: "example job"
+    description: "This is an example job"
+    type: "postgres"
+    postgres_config:
+      host: "localhost"
+      port: "5432"
+      user: "postgres"
+      password: "${POSTGRES_PASSWORD}"
+      database: "dbname"
+      options:
+        schema-only: "" # No value needed for boolean flags
+        exclude-table: "logs" # Exclude specific tables
+    schedule: "0 0 * * *"
+    retention_policy:
+      type: "count"
+      value: 5
+    notification:
+      enabled: true
+      discord:
+        when:
+          - "success"
+          - "failure"
+        webhook_url: "https://discord.com/api/webhooks/..."

@@ -1,0 +1,26 @@
+version: "1.0"
+server:
+  enabled: true
+  port: 8080
+
+storage:
+  type: local
+  local:
+    directory: /backups
+    max_size: 1GB
+
+jobs:
+  - name: "postgres-backup-test"
+    description: "Integration test for Postgres backup"
+    type: "postgres"
+    postgres_config:
+      host: "postgres"
+      port: "5432"
+      user: "postgres"
+      password: "postgres"
+      database: "testdb"
+      # every midnight
+    schedule: "0 0 * * *"
+    retention_policy:
+      type: "count"
+      value: 3
