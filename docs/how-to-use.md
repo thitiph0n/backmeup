@@ -13,6 +13,9 @@ BackMeUp is a flexible and robust backup management tool designed to simplify da
 7. [Notification System](#notification-system)
 8. [Retention Policies](#retention-policies)
 9. [Monitoring and Healthchecks](#monitoring-and-healthchecks)
+10. [MinIO Backups and Restoration](#minio-backups-and-restoration)
+11. [PostgreSQL Backups and Restoration](#postgresql-backups-and-restoration)
+12. [MySQL Backups and Restoration](#mysql-backups-and-restoration)
 
 ## Quick Start
 
@@ -209,3 +212,145 @@ Endpoints:
 - `/jobs` - Returns information about configured jobs
 
 You can disable the server by setting `server.enabled` to `false`.
+
+## MinIO Backups and Restoration
+
+BackMeUp supports backing up MinIO object storage using the MinIO Client (mc) tool.
+
+### Configuration
+
+```yaml
+jobs:
+  - name: "minio_backup"
+    description: "Daily MinIO bucket backup"
+    type: "minio"
+    minio_config:
+      endpoint: "minio.example.com:9000"
+      access_key: "${MINIO_ACCESS_KEY}"
+      secret_key: "${MINIO_SECRET_KEY}"
+      bucket_name: "my-bucket"
+      use_ssl: true
+      source_folder: "data" # Optional: backup only a specific folder in the bucket
+      compression: false # Optional: set to true to enable tar.gz compression of backup
+    schedule: "0 0 * * *" # Run at midnight every day
+    retention_policy:
+      type: "count"
+      value: 7 # Keep last 7 backups
+```
+
+### Backup Process
+
+When the MinIO backup job executes, it:
+
+1. Creates a timestamped directory for the backup
+2. Configures the MinIO Client (mc) with your server credentials
+3. Uses `mc cp --recursive` to copy all files from the specified bucket/folder
+4. If compression is enabled, creates a tar.gz archive instead of individual files
+
+### How to Restore from MinIO Backup
+
+To restore data from a MinIO backup:
+
+1. **Install MinIO Client**: If not already installed
+
+   ```bash
+   # For macOS
+   brew install minio/stable/mc
+
+   # For Linux
+   wget https://dl.min.io/client/mc/release/linux-amd64/mc
+   chmod +x mc
+   sudo mv mc /usr/local/bin/
+   ```
+
+2. **Configure MinIO Client**:
+
+   ```bash
+   mc alias set myminio https://minio.example.com:9000 ACCESSKEY SECRETKEY
+   ```
+
+3. **Locate your backup**: Find the backup directory you want to restore from
+
+   ```bash
+   ls /backups/{job_name}/
+   ```
+
+4. **For non-compressed backups**: Copy files directly back to MinIO
+
+   ```bash
+   mc cp --recursive /backups/{job_name}/minio_backup_{timestamp}/ myminio/bucket/
+   ```
+
+5. **For compressed backups**: Extract the archive first, then copy
+
+   ```bash
+   # Extract the archive
+   mkdir -p /tmp/minio-restore
+   tar -xzf /backups/{job_name}/minio_backup_{timestamp}.tar.gz -C /tmp/minio-restore
+
+   # Copy to MinIO
+   mc cp --recursive /tmp/minio-restore/ myminio/bucket/
+
+   # Clean up
+   rm -rf /tmp/minio-restore
+   ```
+
+6. **Verify the restoration**: List files in your bucket to confirm
+
+   ```bash
+   mc ls myminio/bucket/
+   ```
+
+For selective restoration from non-compressed backups, you can specify specific paths:
+
+```bash
+mc cp --recursive /backups/{job_name}/minio_backup_{timestamp}/specific/folder/ myminio/bucket/specific/folder/
+```
+
+For selective restoration from compressed backups, you need to extract the full archive first, then copy selected folders.
+
+## PostgreSQL Backups and Restoration
+
+BackMeUp creates PostgreSQL backups using the `pg_dump` utility.
+
+### How to Restore PostgreSQL Backup
+
+To restore a PostgreSQL backup:
+
+1. **Locate your backup**: Find the SQL dump file
+
+   ```bash
+   ls /backups/{job_name}/
+   ```
+
+2. **Restore using psql**:
+
+   ```bash
+   psql -h hostname -U username -d database_name -f /backups/{job_name}/pg_backup_{timestamp}.sql
+   ```
+
+   Or using the pg_restore tool (for custom format backups):
+
+   ```bash
+   pg_restore -h hostname -U username -d database_name /backups/{job_name}/pg_backup_{timestamp}.dump
+   ```
+
+## MySQL Backups and Restoration
+
+BackMeUp creates MySQL backups using the `mysqldump` utility.
+
+### How to Restore MySQL Backup
+
+To restore a MySQL backup:
+
+1. **Locate your backup**: Find the SQL dump file
+
+   ```bash
+   ls /backups/{job_name}/
+   ```
+
+2. **Restore using mysql client**:
+
+   ```bash
+   mysql -h hostname -u username -p database_name < /backups/{job_name}/mysql_backup_{timestamp}.sql
+   ```

@@ -24,3 +24,15 @@ jobs:
     retention_policy:
       type: "count"
       value: 3
+  - name: "minio-backup-test"
+    description: "Integration test for MinIO backup"
+    type: "minio"
+    minio_config:
+      endpoint: "minio:9000"
+      access_key: "minioadmin"
+      secret_key: "minioadmin"
+      bucket_name: "testbucket"
+    schedule: "* * * * *" # every 5 minutes
+    retention_policy:
+      type: "count"
+      value: 3

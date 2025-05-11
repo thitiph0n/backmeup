@@ -1,11 +1,13 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -25,7 +27,7 @@ func NewMinioExecutor(jobConfig config.JobConfig, storageConfig config.StorageCo
 		return nil, fmt.Errorf("missing MinIO configuration for job: %s", jobConfig.Name)
 	}
 
-	// Initialize MinIO client
+	// Initialize MinIO client - we'll keep this for operations that might require the SDK
 	client, err := minio.New(jobConfig.MinIOConfig.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(jobConfig.MinIOConfig.AccessKey, jobConfig.MinIOConfig.SecretKey, ""),
 		Secure: jobConfig.MinIOConfig.UseSSL,
@@ -43,11 +45,51 @@ func NewMinioExecutor(jobConfig config.JobConfig, storageConfig config.StorageCo
 	}, nil
 }
 
-// Execute performs a backup of MinIO bucket data
-func (m *MinioExecutor) Execute() error {
-	m.LogBackupInfo("Starting MinIO backup")
+// checkMCInstalled verifies if MinIO Client (mc) is installed
+func (m *MinioExecutor) checkMCInstalled() error {
+	cmd := exec.Command("mc", "version")
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("MinIO Client (mc) is not installed or not in PATH. Please install mc tool: %w", err)
+	}
+	return nil
+}
 
-	ctx := context.Background()
+// configureMC sets up mc config with MinIO server credentials
+func (m *MinioExecutor) configureMC(ctx context.Context) (string, error) {
+	cfg := m.Config.MinIOConfig
+
+	// Create a unique alias for this backup job
+	alias := fmt.Sprintf("backmeup-%s", m.Config.Name)
+
+	var stdout, stderr bytes.Buffer
+
+	// Configure mc with server details
+	cmd := exec.CommandContext(ctx, "mc", "alias", "set", alias,
+		cfg.Endpoint, cfg.AccessKey, cfg.SecretKey)
+
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to configure mc: %w, stderr: %s", err, stderr.String())
+	}
+
+	return alias, nil
+}
+
+// Execute performs a backup of MinIO bucket data using mc sync
+func (m *MinioExecutor) Execute() error {
+	m.LogBackupInfo("Starting MinIO backup using mc sync")
+
+	// Check if mc is installed
+	if err := m.checkMCInstalled(); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
+	defer cancel()
+
 	cfg := m.Config.MinIOConfig
 
 	// Generate a timestamped directory for this backup
@@ -72,90 +114,68 @@ func (m *MinioExecutor) Execute() error {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
-	// Check if the bucket exists
-	exists, err := m.client.BucketExists(ctx, cfg.BucketName)
+	// Configure mc with the MinIO server
+	alias, err := m.configureMC(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to check if bucket exists: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("bucket %s does not exist", cfg.BucketName)
+		return err
 	}
 
-	// Create a channel to receive objects
-	objectsCh := m.client.ListObjects(ctx, cfg.BucketName, minio.ListObjectsOptions{
-		Recursive: true,
-		Prefix:    cfg.SourceFolder,
-	})
-
-	// Keep track of statistics
-	var totalSize int64
-	var fileCount int
-
-	// Download each object
-	for object := range objectsCh {
-		if object.Err != nil {
-			return fmt.Errorf("error listing objects: %w", object.Err)
-		}
-
-		// Generate local path for this object
-		relativePath := object.Key
-		if cfg.SourceFolder != "" {
-			relativePath = relativePath[len(cfg.SourceFolder):]
-		}
-
-		// Ensure the relative path is not empty
-		if len(relativePath) == 0 {
-			continue
-		}
-
-		// Remove leading slash if present
-		if relativePath[0] == '/' {
-			relativePath = relativePath[1:]
-		}
-
-		localPath := filepath.Join(backupDir, relativePath)
-
-		// Create parent directory if it doesn't exist
-		if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-			return fmt.Errorf("failed to create directory for object: %w", err)
-		}
-
-		// Skip directories (which have zero size)
-		if object.Size == 0 && object.Key[len(object.Key)-1] == '/' {
-			continue
-		}
-
-		// Download the object
-		obj, err := m.client.GetObject(ctx, cfg.BucketName, object.Key, minio.GetObjectOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to get object %s: %w", object.Key, err)
-		}
-
-		// Create the local file
-		localFile, err := os.Create(localPath)
-		if err != nil {
-			return fmt.Errorf("failed to create local file %s: %w", localPath, err)
-		}
-
-		// Copy the object content to local file
-		written, err := io.Copy(localFile, obj)
-		localFile.Close()
-		if err != nil {
-			return fmt.Errorf("failed to download object %s: %w", object.Key, err)
-		}
-
-		// Update statistics
-		totalSize += written
-		fileCount++
-
-		if fileCount%10 == 0 {
-			m.LogBackupInfo(fmt.Sprintf("Downloaded %d files (%.2f MB)",
-				fileCount, float64(totalSize)/(1024*1024)))
+	// Build the source path for mc sync
+	sourcePath := fmt.Sprintf("%s/%s", alias, cfg.BucketName)
+	if cfg.SourceFolder != "" {
+		// Ensure the source folder has a trailing slash for mc
+		if !strings.HasSuffix(cfg.SourceFolder, "/") {
+			sourcePath = fmt.Sprintf("%s/%s/", sourcePath, cfg.SourceFolder)
+		} else {
+			sourcePath = fmt.Sprintf("%s/%s", sourcePath, cfg.SourceFolder)
 		}
 	}
 
-	m.LogBackupInfo(fmt.Sprintf("MinIO backup completed successfully: %d files (%.2f MB) to %s",
-		fileCount, float64(totalSize)/(1024*1024), backupDir))
+	m.LogBackupInfo(fmt.Sprintf("Syncing from %s to %s", sourcePath, backupDir))
+
+	var stdout, stderr bytes.Buffer
+
+	// Execute mc sync command
+	// We use --newer-than=0 to sync all files regardless of their modification time
+	cmd := exec.CommandContext(ctx, "mc", "cp", "--recursive", sourcePath, backupDir)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// Start executing the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start mc sync: %w", err)
+	}
+
+	// Log progress periodically
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				m.LogBackupInfo("MC sync in progress...")
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	// Wait for the command to complete
+	err = cmd.Wait()
+	done <- struct{}{}
+
+	if err != nil {
+		return fmt.Errorf("mc sync failed: %w, stderr: %s", err, stderr.String())
+	}
+
+	// Log completion
+	m.LogBackupInfo(fmt.Sprintf("MinIO backup completed successfully to %s", backupDir))
+	m.LogBackupInfo(fmt.Sprintf("mc output: %s", stdout.String()))
 
 	return nil
 }
