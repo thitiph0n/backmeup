@@ -78,17 +78,14 @@ func (m *MinioExecutor) configureMC(ctx context.Context) (string, error) {
 	return alias, nil
 }
 
-// Execute performs a backup of MinIO bucket data using mc sync
-func (m *MinioExecutor) Execute() error {
-	m.LogBackupInfo("Starting MinIO backup using mc sync")
+// Execute performs a backup of MinIO bucket data using mc mirror
+func (m *MinioExecutor) Execute(ctx context.Context) error {
+	m.LogBackupInfo("Starting MinIO backup using mc mirror")
 
 	// Check if mc is installed
 	if err := m.checkMCInstalled(); err != nil {
 		return err
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
-	defer cancel()
 
 	cfg := m.Config.MinIOConfig
 
@@ -120,7 +117,7 @@ func (m *MinioExecutor) Execute() error {
 		return err
 	}
 
-	// Build the source path for mc sync
+	// Build the source path for mc mirror
 	sourcePath := fmt.Sprintf("%s/%s", alias, cfg.BucketName)
 	if cfg.SourceFolder != "" {
 		// Ensure the source folder has a trailing slash for mc
@@ -131,19 +128,18 @@ func (m *MinioExecutor) Execute() error {
 		}
 	}
 
-	m.LogBackupInfo(fmt.Sprintf("Syncing from %s to %s", sourcePath, backupDir))
+	m.LogBackupInfo(fmt.Sprintf("Mirroring from %s to %s", sourcePath, backupDir))
 
 	var stdout, stderr bytes.Buffer
 
-	// Execute mc sync command
-	// We use --newer-than=0 to sync all files regardless of their modification time
-	cmd := exec.CommandContext(ctx, "mc", "cp", "--recursive", sourcePath, backupDir)
+	// Execute mc mirror command with --preserve to maintain metadata and attributes
+	cmd := exec.CommandContext(ctx, "mc", "mirror", "--preserve", sourcePath, backupDir)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	// Start executing the command
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start mc sync: %w", err)
+		return fmt.Errorf("failed to start mc mirror: %w", err)
 	}
 
 	// Log progress periodically
@@ -156,7 +152,7 @@ func (m *MinioExecutor) Execute() error {
 		for {
 			select {
 			case <-ticker.C:
-				m.LogBackupInfo("MC sync in progress...")
+				m.LogBackupInfo("MC mirror in progress...")
 			case <-ctx.Done():
 				return
 			case <-done:
@@ -170,7 +166,7 @@ func (m *MinioExecutor) Execute() error {
 	done <- struct{}{}
 
 	if err != nil {
-		return fmt.Errorf("mc sync failed: %w, stderr: %s", err, stderr.String())
+		return fmt.Errorf("mc mirror failed: %w, stderr: %s", err, stderr.String())
 	}
 
 	// Log completion

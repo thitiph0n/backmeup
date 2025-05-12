@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +31,7 @@ func NewMySQLExecutor(jobConfig config.JobConfig, storageConfig config.StorageCo
 }
 
 // Execute performs a MySQL database backup
-func (m *MySQLExecutor) Execute() error {
+func (m *MySQLExecutor) Execute(ctx context.Context) error {
 	m.LogBackupInfo("Starting MySQL backup")
 
 	// Generate a filename for the backup
@@ -71,8 +72,15 @@ func (m *MySQLExecutor) Execute() error {
 	user := userPassSplit[0]
 	pass := userPassSplit[1]
 
+	// Create the output file
+	backupFile, err := os.Create(backupPath)
+	if err != nil {
+		return fmt.Errorf("failed to create backup file: %w", err)
+	}
+	defer backupFile.Close()
+
 	// Set up the mysqldump command
-	cmd := exec.Command("mysqldump",
+	cmd := exec.CommandContext(ctx, "mysqldump",
 		"--user="+user,
 		"--password="+pass,
 		"--host="+hostPart,
@@ -80,13 +88,6 @@ func (m *MySQLExecutor) Execute() error {
 		"--single-transaction",
 		"--quick",
 	)
-
-	// Create the output file
-	backupFile, err := os.Create(backupPath)
-	if err != nil {
-		return fmt.Errorf("failed to create backup file: %w", err)
-	}
-	defer backupFile.Close()
 
 	cmd.Stdout = backupFile
 	cmd.Stderr = os.Stderr

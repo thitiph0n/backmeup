@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,7 +30,7 @@ func NewPostgresExecutor(jobConfig config.JobConfig, storageConfig config.Storag
 }
 
 // Execute performs a PostgreSQL database backup
-func (p *PostgresExecutor) Execute() error {
+func (p *PostgresExecutor) Execute(ctx context.Context) error {
 	p.LogBackupInfo("Starting PostgreSQL backup")
 
 	// Generate a filename for the backup
@@ -99,7 +100,7 @@ func (p *PostgresExecutor) Execute() error {
 	}
 
 	// Set up the pg_dump command
-	cmd := exec.Command("pg_dump", cmdArgs...)
+	cmd := exec.CommandContext(ctx, "pg_dump", cmdArgs...)
 	cmd.Env = env
 	cmd.Stdout = backupFile
 	cmd.Stderr = os.Stderr

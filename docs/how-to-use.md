@@ -231,7 +231,6 @@ jobs:
       bucket_name: "my-bucket"
       use_ssl: true
       source_folder: "data" # Optional: backup only a specific folder in the bucket
-      compression: false # Optional: set to true to enable tar.gz compression of backup
     schedule: "0 0 * * *" # Run at midnight every day
     retention_policy:
       type: "count"
@@ -244,8 +243,7 @@ When the MinIO backup job executes, it:
 
 1. Creates a timestamped directory for the backup
 2. Configures the MinIO Client (mc) with your server credentials
-3. Uses `mc cp --recursive` to copy all files from the specified bucket/folder
-4. If compression is enabled, creates a tar.gz archive instead of individual files
+3. Uses `mc mirror --preserve` to create an exact copy of all files from the specified bucket/folder while maintaining all metadata and file attributes
 
 ### How to Restore from MinIO Backup
 
@@ -275,39 +273,23 @@ To restore data from a MinIO backup:
    ls /backups/{job_name}/
    ```
 
-4. **For non-compressed backups**: Copy files directly back to MinIO
+4. **Mirror files back to MinIO**:
 
    ```bash
-   mc cp --recursive /backups/{job_name}/minio_backup_{timestamp}/ myminio/bucket/
+   mc mirror --preserve /backups/{job_name}/minio_backup_{timestamp}/ myminio/bucket/
    ```
 
-5. **For compressed backups**: Extract the archive first, then copy
-
-   ```bash
-   # Extract the archive
-   mkdir -p /tmp/minio-restore
-   tar -xzf /backups/{job_name}/minio_backup_{timestamp}.tar.gz -C /tmp/minio-restore
-
-   # Copy to MinIO
-   mc cp --recursive /tmp/minio-restore/ myminio/bucket/
-
-   # Clean up
-   rm -rf /tmp/minio-restore
-   ```
-
-6. **Verify the restoration**: List files in your bucket to confirm
+5. **Verify the restoration**: List files in your bucket to confirm
 
    ```bash
    mc ls myminio/bucket/
    ```
 
-For selective restoration from non-compressed backups, you can specify specific paths:
+For selective restoration, you can specify specific paths:
 
 ```bash
-mc cp --recursive /backups/{job_name}/minio_backup_{timestamp}/specific/folder/ myminio/bucket/specific/folder/
+mc mirror --preserve /backups/{job_name}/minio_backup_{timestamp}/specific/folder/ myminio/bucket/specific/folder/
 ```
-
-For selective restoration from compressed backups, you need to extract the full archive first, then copy selected folders.
 
 ## PostgreSQL Backups and Restoration
 

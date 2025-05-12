@@ -164,7 +164,7 @@ Uses `mysqldump` with transaction consistency and piped compression.
 
 #### MinIO
 
-Uses `mc mirror` for efficient object storage backup.
+Uses `mc mirror --preserve` for efficient object storage backup with metadata preservation.
 
 ### State Management
 

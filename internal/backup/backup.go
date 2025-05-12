@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -12,8 +13,8 @@ import (
 
 // Executor is the interface for all backup executors
 type Executor interface {
-	// Execute runs the backup operation
-	Execute() error
+	// Execute runs the backup operation with context support for cancellation and timeouts
+	Execute(ctx context.Context) error
 }
 
 // BaseExecutor contains common functionality for all backup executors

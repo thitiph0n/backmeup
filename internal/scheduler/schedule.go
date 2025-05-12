@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -12,7 +13,7 @@ import (
 
 // BackupExecutor defines the interface for backup executors
 type BackupExecutor interface {
-	Execute() error
+	Execute(ctx context.Context) error
 }
 
 // JobScheduler manages backup jobs scheduling
@@ -43,7 +44,11 @@ func (js *JobScheduler) AddJob(jobConfig config.JobConfig, executor BackupExecut
 	job, err := js.scheduler.Cron(jobConfig.Schedule).Do(func() {
 		log.Printf("Running backup job: %s (%s)", jobName, jobConfig.Type)
 
-		if err := executor.Execute(); err != nil {
+		// Create a context with timeout for this backup job
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
+		defer cancel()
+
+		if err := executor.Execute(ctx); err != nil {
 			log.Printf("Error executing backup job %s: %v", jobName, err)
 		} else {
 			log.Printf("Backup job %s completed successfully", jobName)
