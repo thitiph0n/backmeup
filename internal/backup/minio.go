@@ -64,12 +64,49 @@ func (m *MinioExecutor) configureMC(ctx context.Context) (string, error) {
 
 	var stdout, stderr bytes.Buffer
 
+	// Ensure endpoint has proper URL format (scheme://host:port)
+	endpoint := cfg.Endpoint
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		// Add scheme based on UseSSL setting
+		if cfg.UseSSL {
+			endpoint = "https://" + endpoint
+		} else {
+			endpoint = "http://" + endpoint
+		}
+	}
+
+	// Remove any trailing path components or slashes that might cause issues
+	// The MinIO Client expects URLs in the form scheme://host[:port]/
+	schemeAndHost := endpoint
+
+	// Find the position after the scheme and double slash (http:// or https://)
+	slashPos := 0
+	if strings.HasPrefix(endpoint, "https://") {
+		slashPos = 8 // length of "https://"
+	} else if strings.HasPrefix(endpoint, "http://") {
+		slashPos = 7 // length of "http://"
+	}
+
+	// Look for additional slashes after the scheme://host:port part
+	if pathSlashPos := strings.Index(endpoint[slashPos:], "/"); pathSlashPos != -1 {
+		// If there's a path component after the host[:port], remove it
+		schemeAndHost = endpoint[:slashPos+pathSlashPos+1] // Keep the first slash
+	} else if !strings.HasSuffix(endpoint, "/") {
+		// Ensure there's a trailing slash if none present
+		schemeAndHost = endpoint + "/"
+	}
+
+	endpoint = schemeAndHost
+
 	// Configure mc with server details
 	cmd := exec.CommandContext(ctx, "mc", "alias", "set", alias,
-		cfg.Endpoint, cfg.AccessKey, cfg.SecretKey)
+		endpoint, cfg.AccessKey, cfg.SecretKey)
 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
+	// Log the endpoint being used (without credentials)
+	m.LogBackupInfo(fmt.Sprintf("Configuring MinIO client with endpoint: %s", endpoint))
 
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("failed to configure mc: %w, stderr: %s", err, stderr.String())
