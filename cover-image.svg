@@ -1,0 +1,77 @@
+<svg width="1200" height="400" viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3c72"/>
+      <stop offset="100%" style="stop-color:#2a5298"/>
+    </linearGradient>
+    <linearGradient id="titleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#e0e7ff"/>
+    </linearGradient>
+    <linearGradient id="iconGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#60a5fa"/>
+      <stop offset="100%" style="stop-color:#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="dbGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6"/>
+      <stop offset="100%" style="stop-color:#1d4ed8"/>
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="10" stdDeviation="15" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1200" height="400" rx="20" fill="url(#bgGradient)"/>
+  
+  <!-- Background Pattern -->
+  <circle cx="240" cy="200" r="150" fill="rgba(120, 119, 198, 0.2)" opacity="0.3"/>
+  <circle cx="960" cy="80" r="100" fill="rgba(255, 255, 255, 0.1)" opacity="0.5"/>
+  <circle cx="480" cy="320" r="120" fill="rgba(120, 119, 198, 0.15)" opacity="0.4"/>
+  
+  <!-- Title -->
+  <text x="60" y="140" font-family="Arial, sans-serif" font-size="72" font-weight="800" fill="url(#titleGradient)">Back Me Up</text>
+  
+  <!-- Subtitle -->
+  <text x="60" y="180" font-family="Arial, sans-serif" font-size="20" font-weight="300" fill="#cbd5e1" opacity="0.9">Lightweight, GitOps-friendly backup management solution</text>
+  
+  <!-- Feature Tags -->
+  <rect x="60" y="220" width="100" height="35" rx="17" fill="rgba(255, 255, 255, 0.15)" stroke="rgba(255, 255, 255, 0.2)"/>
+  <text x="110" y="242" font-family="Arial, sans-serif" font-size="14" font-weight="500" fill="#ffffff" text-anchor="middle">PostgreSQL</text>
+  
+  <rect x="180" y="220" width="70" height="35" rx="17" fill="rgba(255, 255, 255, 0.15)" stroke="rgba(255, 255, 255, 0.2)"/>
+  <text x="215" y="242" font-family="Arial, sans-serif" font-size="14" font-weight="500" fill="#ffffff" text-anchor="middle">MySQL</text>
+  
+  <rect x="270" y="220" width="70" height="35" rx="17" fill="rgba(255, 255, 255, 0.15)" stroke="rgba(255, 255, 255, 0.2)"/>
+  <text x="305" y="242" font-family="Arial, sans-serif" font-size="14" font-weight="500" fill="#ffffff" text-anchor="middle">MinIO</text>
+  
+  <rect x="360" y="220" width="70" height="35" rx="17" fill="rgba(255, 255, 255, 0.15)" stroke="rgba(255, 255, 255, 0.2)"/>
+  <text x="395" y="242" font-family="Arial, sans-serif" font-size="14" font-weight="500" fill="#ffffff" text-anchor="middle">GitOps</text>
+  
+  <!-- Main Icon -->
+  <rect x="940" y="100" width="200" height="200" rx="50" fill="url(#iconGradient)" filter="url(#shadow)"/>
+  
+  <!-- Database Icon -->
+  <rect x="1000" y="160" width="80" height="80" rx="20" fill="#ffffff"/>
+  <ellipse cx="1040" cy="180" rx="25" ry="17" fill="url(#dbGradient)"/>
+  <ellipse cx="1040" cy="186" rx="25" ry="4" fill="#1e40af"/>
+  <ellipse cx="1040" cy="195" rx="25" ry="17" fill="none" stroke="url(#dbGradient)" stroke-width="2"/>
+  <ellipse cx="1040" cy="210" rx="25" ry="17" fill="none" stroke="url(#dbGradient)" stroke-width="2"/>
+  
+  <!-- Orbit Icons -->
+  <rect x="880" y="50" width="60" height="60" rx="15" fill="rgba(255, 255, 255, 0.9)" filter="url(#shadow)"/>
+  <circle cx="910" cy="80" r="15" fill="#336791"/>
+  
+  <rect x="800" y="300" width="60" height="60" rx="15" fill="rgba(255, 255, 255, 0.9)" filter="url(#shadow)"/>
+  <rect x="815" y="318" width="30" height="20" rx="5" fill="#4479a1"/>
+  
+  <rect x="1120" y="150" width="60" height="60" rx="15" fill="rgba(255, 255, 255, 0.9)" filter="url(#shadow)"/>
+  <rect x="1135" y="168" width="25" height="25" rx="5" fill="#c72e29"/>
+  
+  <!-- Tech Stack -->
+  <rect x="1050" y="350" width="40" height="25" rx="12" fill="rgba(255, 255, 255, 0.1)"/>
+  <text x="1070" y="366" font-family="Arial, sans-serif" font-size="12" font-weight="500" fill="#ffffff" text-anchor="middle">Go</text>
+  
+  <rect x="1100" y="350" width="50" height="25" rx="12" fill="rgba(255, 255, 255, 0.1)"/>
+  <text x="1125" y="366" font-family="Arial, sans-serif" font-size="12" font-weight="500" fill="#ffffff" text-anchor="middle">SQLite</text>
+</svg>

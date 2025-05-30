@@ -1,40 +1,60 @@
+![Back Me Up Cover](cover-image.svg)
+
 # Back Me Up
 
 A lightweight, configuration-driven backup management solution for your databases and object storage.
 
 ## Overview
 
-Back Me Up provides a simple, GitOps-friendly tool to create, manage, and monitor backups for your critical data sources. Supporting PostgreSQL, MySQL, and MinIO out of the box, it offers flexible scheduling, retention policies, and detailed backup history tracking.
+Back Me Up provides a simple, GitOps-friendly tool to create, manage, and monitor backups for your critical data sources. Supporting PostgreSQL, MySQL, and MinIO out of the box, it offers flexible scheduling and retention policies.
 
-## Features
+## ✅ Implemented Features
 
 - **GitOps-Friendly Configuration**: Define all backup jobs in YAML configuration for version control
 - **Multiple Data Sources**:
-  - PostgreSQL databases
-  - MySQL databases
-  - MinIO object storage
+  - ✅ PostgreSQL databases (using `pg_dump`)
+  - ✅ MySQL databases (using `mysqldump`)
+  - ✅ MinIO object storage (using `mc mirror`)
 - **Flexible Backup Policies**:
-  - Custom scheduling using cron syntax
-  - File retention management
-  - Configurable snapshot count
-- **State Management**: SQLite-based tracking of backup operations
-- **Graceful Handling**: Proper handling of in-progress backups during deployments
-- **Backup History**: Track all backup operations with detailed logs and statistics
-- **Monitoring & Alerting**:
-  - Storage capacity monitoring with soft limits
-  - Prometheus metrics endpoint for monitoring
-  - Discord notifications for backup status
-  - Webhook support for integration with other services
+  - ✅ Custom scheduling using cron syntax
+  - ✅ File retention management (count-based and days-based)
+  - ✅ Local storage backend
+- **Job Management**:
+  - ✅ In-memory job status tracking
+  - ✅ Graceful handling of in-progress backups during deployments
+  - ✅ Automatic retention policy enforcement
+- **Monitoring**:
+  - ✅ HTTP server with health checks (`/health`)
+  - ✅ Basic job metrics endpoint (`/metrics`) (JSON format)
+  - ✅ Real-time job status tracking
+
+## 🚧 Planned Features (Not Yet Implemented)
+
+- **State Management**:
+  - ⏳ SQLite-based persistent backup history tracking
+  - ⏳ Detailed backup operation logs and statistics (beyond current basic metrics)
+- **Advanced Monitoring & Alerting**:
+  - ⏳ Storage capacity monitoring with configurable limits
+  - ⏳ Prometheus-compatible metrics format for `/metrics`
+  - ⏳ Discord notifications for backup status
+  - ⏳ Webhook support for integration with other services
+- **Additional Storage Backends**:
+  - ⏳ S3-compatible storage support
+  - ⏳ Remote storage options
+- **Enhanced Features**:
+  - ⏳ Backup verification and integrity checks
+  - ⏳ Incremental backup support
+  - ⏳ Web UI for backup management
 
 ## Tech Stack
 
 - Go
-- SQLite (for state tracking)
 - gocron (scheduler)
+- Local file system (for backup storage)
 
 ## Installation
 
-### Using Docker Compose (recommended)
+### Using Docker Compose
 
 ```yaml
 # docker-compose.yml
@@ -74,7 +94,7 @@ Run with:
 docker-compose up -d
 ```
 
-### Using Docker (alternative)
+### Using Docker cmd
 
 ```bash
 docker run -p 8080:8080 \
