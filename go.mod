@@ -1,8 +1,6 @@
 module github.com/username/backmeup
 
-go 1.23.0
-
-toolchain go1.24.2
+go 1.26.1
 
 require (
 	github.com/go-co-op/gocron v1.37.0

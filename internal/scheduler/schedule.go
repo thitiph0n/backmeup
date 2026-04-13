@@ -127,11 +127,6 @@ func (js *JobScheduler) Stop() {
 // JobStatusCallback is a function that receives job status updates
 type JobStatusCallback func(jobName string, status string, timestamp time.Time)
 
-// JobStatusListener receives notifications about job status changes
-type JobStatusListener struct {
-	callbacks []JobStatusCallback
-}
-
 // JobStatus constants
 const (
 	StatusRunning  = "RUNNING"

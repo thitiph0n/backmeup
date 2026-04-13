@@ -144,20 +144,17 @@ func (m *Manager) listBackupFiles(dir, jobName string) ([]BackupFile, error) {
 					Size:    info.Size(),
 				})
 			}
-		} else {
-			// Regular backup files
-			if isBackupFile(entry.Name()) {
-				info, err := entry.Info()
-				if err != nil {
-					log.Printf("Warning: failed to get info for file %s: %v", entry.Name(), err)
-					continue
-				}
-				files = append(files, BackupFile{
-					Path:    filepath.Join(dir, entry.Name()),
-					ModTime: info.ModTime(),
-					Size:    info.Size(),
-				})
+		} else if isBackupFile(entry.Name()) {
+			info, err := entry.Info()
+			if err != nil {
+				log.Printf("Warning: failed to get info for file %s: %v", entry.Name(), err)
+				continue
 			}
+			files = append(files, BackupFile{
+				Path:    filepath.Join(dir, entry.Name()),
+				ModTime: info.ModTime(),
+				Size:    info.Size(),
+			})
 		}
 	}
 

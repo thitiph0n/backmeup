@@ -1,4 +1,4 @@
-.PHONY: test dev docker-build docker-build-multi docker-push docker-push-github itest itest-up ittest-down
+.PHONY: test lint dev docker-build docker-build-multi docker-push docker-push-github itest itest-up ittest-down
 
 # Default registry URL - can be overridden via REGISTRY_URL env var
 REGISTRY_URL ?= docker.io
@@ -10,6 +10,10 @@ GITHUB_USERNAME ?= thitiph0n
 # Run all tests
 test:
 	go test -v ./...
+
+# Run linter (requires golangci-lint: https://golangci-lint.run/usage/install/)
+lint:
+	golangci-lint run ./...
 
 # Run the development server
 dev:

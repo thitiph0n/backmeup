@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev
@@ -26,7 +26,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
     fi
 
 # Create final image
-FROM alpine:3.21
+FROM alpine:3.22
 ARG TARGETPLATFORM
 
 # Install runtime dependencies for database backup utilities
