@@ -28,3 +28,9 @@ jobs:
           docker buildx imagetools create \
             -t ${{ vars.DOCKERHUB_USERNAME }}/backmeup:${{ github.ref_name }} \
             ${{ vars.DOCKERHUB_USERNAME }}/backmeup:${{ steps.sha.outputs.short }}
+
+      - name: Tag as latest
+        run: |
+          docker buildx imagetools create \
+            -t ${{ vars.DOCKERHUB_USERNAME }}/backmeup:latest \
+            ${{ vars.DOCKERHUB_USERNAME }}/backmeup:${{ github.ref_name }}
