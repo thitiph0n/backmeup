@@ -51,7 +51,7 @@ docker run -p 8080:8080 \
 ### From Source
 
 ```bash
-git clone https://github.com/username/backmeup.git
+git clone https://github.com/thitiph0n/backmeup.git
 cd backmeup
 go mod download
 go build -o backmeup cmd/main.go

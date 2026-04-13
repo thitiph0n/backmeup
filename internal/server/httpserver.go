@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/username/backmeup/internal/scheduler"
+	"github.com/thitiph0n/backmeup/internal/scheduler"
 )
 
 // HTTPServer represents the HTTP server for BackMeUp
