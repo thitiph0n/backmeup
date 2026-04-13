@@ -1,4 +1,4 @@
-module github.com/username/backmeup
+module github.com/thitiph0n/backmeup
 
 go 1.26.1
 

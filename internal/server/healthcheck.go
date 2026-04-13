@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/username/backmeup/internal/scheduler"
+	"github.com/thitiph0n/backmeup/internal/scheduler"
 )
 
 // JobStatus represents the status of a backup job

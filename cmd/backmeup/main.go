@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/username/backmeup/internal/backup"
-	"github.com/username/backmeup/internal/config"
-	"github.com/username/backmeup/internal/scheduler"
-	"github.com/username/backmeup/internal/server"
+	"github.com/thitiph0n/backmeup/internal/backup"
+	"github.com/thitiph0n/backmeup/internal/config"
+	"github.com/thitiph0n/backmeup/internal/scheduler"
+	"github.com/thitiph0n/backmeup/internal/server"
 )
 
 func main() {

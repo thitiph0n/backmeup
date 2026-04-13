@@ -4,7 +4,7 @@ Scheduled backup tool. Supports postgres/mysql/minio → local storage. Cron-dri
 
 ## Module
 
-`github.com/username/backmeup` — Go 1.23, toolchain 1.24.2
+`github.com/thitiph0n/backmeup` — Go 1.23, toolchain 1.24.2
 
 ## Commands
 
