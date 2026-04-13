@@ -14,13 +14,12 @@ linters:
     - gocritic
     - misspell
     - bodyclose
-
-issues:
-  exclude-rules:
-    - path: "_test\\.go"
-      linters:
-        - errcheck
-  exclude-dirs:
-    - ittest
-    - example
-    - docs
+  exclusions:
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - errcheck
+    paths:
+      - ittest
+      - example
+      - docs
