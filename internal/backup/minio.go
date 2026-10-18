@@ -67,7 +67,7 @@ func (m *MinioExecutor) Execute(ctx context.Context) (err error) {
 	}
 	defer func() {
 		if err != nil {
-			m.removeBackup(backupDirName)
+			m.discardBackup(backupDirName)
 		}
 	}()
 
@@ -79,7 +79,15 @@ func (m *MinioExecutor) Execute(ctx context.Context) (err error) {
 		return fmt.Errorf("minio download failed: %w", err)
 	}
 
-	m.LogBackupInfo(fmt.Sprintf("MinIO backup completed successfully to %s (%d objects)", backupDir, count))
+	if count == 0 {
+		return fmt.Errorf("no objects found in s3://%s/%s", cfg.BucketName, prefix)
+	}
+
+	if err = m.Storage.Commit(m.Config.Name, backupDirName); err != nil {
+		return err
+	}
+
+	m.LogBackupInfo(fmt.Sprintf("MinIO backup completed successfully: %s (%d objects)", backupDirName, count))
 
 	return nil
 }

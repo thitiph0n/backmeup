@@ -9,6 +9,7 @@ import (
 	"github.com/go-co-op/gocron"
 	"github.com/thitiph0n/backmeup/internal/config"
 	"github.com/thitiph0n/backmeup/internal/retention"
+	"github.com/thitiph0n/backmeup/internal/storage"
 	"github.com/thitiph0n/backmeup/internal/storage/localfs"
 )
 
@@ -17,6 +18,9 @@ type BackupExecutor interface {
 }
 
 type JobScheduler struct {
+	rootCtx      context.Context
+	cancelJobs   context.CancelFunc
+	store        storage.Storage
 	scheduler    *gocron.Scheduler
 	jobs         map[string]BackupExecutor
 	jobConfigs   map[string]config.JobConfig
@@ -26,7 +30,11 @@ type JobScheduler struct {
 
 func NewJobScheduler(storageConfig config.StorageConfig) *JobScheduler {
 	store := localfs.New(storageConfig.Local)
+	rootCtx, cancelJobs := context.WithCancel(context.Background())
 	return &JobScheduler{
+		rootCtx:      rootCtx,
+		cancelJobs:   cancelJobs,
+		store:        store,
 		scheduler:    gocron.NewScheduler(time.Local),
 		jobs:         make(map[string]BackupExecutor),
 		jobConfigs:   make(map[string]config.JobConfig),
@@ -45,7 +53,7 @@ func (js *JobScheduler) AddJob(jobConfig config.JobConfig, executor BackupExecut
 			callback(jobName, StatusRunning, time.Now())
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
+		ctx, cancel := context.WithTimeout(js.rootCtx, 12*time.Hour)
 		defer cancel()
 
 		if err := executor.Execute(ctx); err != nil {
@@ -87,6 +95,12 @@ func (js *JobScheduler) AddJob(jobConfig config.JobConfig, executor BackupExecut
 }
 
 func (js *JobScheduler) Start() {
+	for jobName := range js.jobs {
+		if err := js.store.SweepPartial(jobName); err != nil {
+			log.Printf("Warning: failed to sweep partial backups for job %s: %v", jobName, err)
+		}
+	}
+
 	js.scheduler.StartAsync()
 	log.Printf("Job scheduler started with %d jobs", len(js.jobs))
 
@@ -96,6 +110,7 @@ func (js *JobScheduler) Start() {
 }
 
 func (js *JobScheduler) Stop() {
+	js.cancelJobs()
 	js.scheduler.Stop()
 	log.Printf("Job scheduler stopped")
 

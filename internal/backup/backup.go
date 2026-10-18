@@ -36,15 +36,19 @@ func (b *BaseExecutor) dumpToFile(cmd *exec.Cmd, filename string) error {
 		runErr = closeErr
 	}
 	if runErr == nil {
+		if err := b.Storage.Commit(b.Config.Name, filename); err != nil {
+			b.discardBackup(filename)
+			return err
+		}
 		return nil
 	}
 
-	b.removeBackup(filename)
+	b.discardBackup(filename)
 	return fmt.Errorf("%s failed: %w", cmd.Args[0], runErr)
 }
 
-func (b *BaseExecutor) removeBackup(name string) {
-	if err := b.Storage.Remove(b.Config.Name, name); err != nil {
+func (b *BaseExecutor) discardBackup(name string) {
+	if err := b.Storage.Discard(b.Config.Name, name); err != nil {
 		b.LogBackupInfo(fmt.Sprintf("Failed to remove incomplete backup %s: %v", name, err))
 	}
 }

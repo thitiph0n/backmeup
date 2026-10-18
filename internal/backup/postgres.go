@@ -32,7 +32,7 @@ func NewPostgresExecutor(jobConfig config.JobConfig, store storage.Storage) (Exe
 func (p *PostgresExecutor) Execute(ctx context.Context) error {
 	p.LogBackupInfo("Starting PostgreSQL backup")
 
-	filename := localfs.GenerateFileName("pg_backup", dumpExtension(p.Config.PostgresConfig.Options["format"]))
+	filename := localfs.GenerateFileName("pg_backup", dumpExtension(p.Config.PostgresConfig.Options))
 
 	cmdArgs := []string{}
 
@@ -61,8 +61,11 @@ func (p *PostgresExecutor) Execute(ctx context.Context) error {
 		"--clean",
 		"--if-exists",
 		"--no-owner",
-		"--compress=9",
 	)
+
+	if _, ok := p.Config.PostgresConfig.Options["compress"]; !ok {
+		cmdArgs = append(cmdArgs, "--compress=9")
+	}
 
 	for key, value := range p.Config.PostgresConfig.Options {
 		if value == "" {
@@ -91,13 +94,23 @@ func (p *PostgresExecutor) Execute(ctx context.Context) error {
 	return nil
 }
 
-func dumpExtension(format string) string {
-	switch strings.ToLower(format) {
-	case "c", "custom":
+func dumpExtension(options map[string]string) string {
+	if config.IsCustomPostgresFormat(options["format"]) {
 		return ".dump"
-	case "t", "tar":
-		return ".tar"
-	default:
+	}
+
+	compress, ok := options["compress"]
+	if !ok {
+		return ".sql.gz"
+	}
+	switch method := strings.ToLower(compress); {
+	case method == "0" || method == "none":
 		return ".sql"
+	case strings.HasPrefix(method, "lz4"):
+		return ".sql.lz4"
+	case strings.HasPrefix(method, "zstd"):
+		return ".sql.zst"
+	default:
+		return ".sql.gz"
 	}
 }

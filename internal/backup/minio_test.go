@@ -85,6 +85,7 @@ func TestMinioExecute_DownloadsObjectsKeepingRelativePaths(t *testing.T) {
 
 	assert.Equal(t, "data/", store.gotPrefx)
 	backupDir := singleBackupDir(t, jobDir)
+	assert.NotContains(t, backupDir, ".partial")
 
 	content, err := os.ReadFile(filepath.Join(backupDir, "nested", "deep", "b.txt"))
 	require.NoError(t, err)
@@ -98,12 +99,22 @@ func TestMinioExecute_DownloadsObjectsKeepingRelativePaths(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestMinioExecute_EmptyBucketSucceeds(t *testing.T) {
-	exec, jobDir := newMinioExecutor(t, &fakeObjectStore{}, "")
+func TestMinioExecute_NoObjectsFailsAndCleansUp(t *testing.T) {
+	exec, jobDir := newMinioExecutor(t, &fakeObjectStore{}, "typo-folder")
 
-	require.NoError(t, exec.Execute(context.Background()))
+	err := exec.Execute(context.Background())
 
-	assert.DirExists(t, singleBackupDir(t, jobDir))
+	require.ErrorContains(t, err, "no objects found in s3://bucket/typo-folder/")
+	entries, readErr := os.ReadDir(jobDir)
+	require.NoError(t, readErr)
+	assert.Empty(t, entries)
+}
+
+func TestMinioExecute_OnlyDirectoryMarkersFails(t *testing.T) {
+	store := &fakeObjectStore{objects: []minio.ObjectInfo{{Key: "folder/"}}}
+	exec, _ := newMinioExecutor(t, store, "")
+
+	require.ErrorContains(t, exec.Execute(context.Background()), "no objects found")
 }
 
 func TestMinioExecute_TraversalKeyFailsAndCleansUp(t *testing.T) {

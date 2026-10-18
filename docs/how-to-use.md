@@ -115,10 +115,21 @@ jobs:
       options: # Additional pg_dump options
         schema-only: "" # Backup schema only, no data
         exclude-table: "logs" # Exclude specific tables
-        format: "custom" # Use custom format (c|d|t|p)
+        format: "custom" # plain (p, default) or custom (c)
 ```
 
 The `options` field allows you to specify any pg_dump option. Options without values should use an empty string (`""`).
+
+Only the `plain` (`p`) and `custom` (`c`) formats are supported, because the dump is streamed into a single backup file. The `directory` (`d`) and `tar` (`t`) formats are rejected when the config is loaded.
+
+By default BackMeUp passes `--compress=9`. The backup file name depends on the format:
+
+| `format` | `compress` | File |
+|---|---|---|
+| plain (default) | unset or `1`-`9` / `gzip` | `pg_backup_{timestamp}.sql.gz` |
+| plain | `0` or `none` | `pg_backup_{timestamp}.sql` |
+| plain | `lz4` / `zstd` | `pg_backup_{timestamp}.sql.lz4` / `.sql.zst` |
+| custom | any | `pg_backup_{timestamp}.dump` |
 
 BackMeUp uses the `pg_dump` command-line tool, so make sure it's available in your environment or use the provided Docker image.
 
@@ -195,6 +206,8 @@ retention_policy:
   value: 30 # Keep backups for 30 days
 ```
 
+Backups are written under a `.partial` name and renamed once they finish. Retention never counts `.partial` entries, and any left behind by a crash or restart are removed when BackMeUp starts. On shutdown, running jobs are cancelled and their partial output is removed.
+
 ## Monitoring and Healthchecks
 
 BackMeUp provides an HTTP server for monitoring and healthchecks:
@@ -246,7 +259,7 @@ When the MinIO backup job executes, it:
 3. Downloads the objects in parallel (4 workers) into the backup directory, keeping the key layout relative to `source_folder`
 4. Sets each file's modification time to the object's last-modified time
 
-If any object fails to download, the partial backup directory is removed and the job is reported as failed. Directory marker keys (ending in `/`) are skipped, and object keys that would escape the backup directory (for example `../x`) fail the job. An empty bucket produces an empty backup directory and succeeds.
+If any object fails to download, the partial backup directory is removed and the job is reported as failed. Directory marker keys (ending in `/`) are skipped, and object keys that would escape the backup directory (for example `../x`) fail the job. If no objects are found (an empty bucket or a `source_folder` that matches nothing), the job fails instead of storing an empty backup, so a typo in the config or an accidentally emptied bucket cannot rotate real backups out of retention.
 
 Only object content and last-modified time are backed up. Content type, user metadata, tags and versions are not preserved.
 
@@ -317,17 +330,25 @@ To restore a PostgreSQL backup:
    ls /backups/{job_name}/
    ```
 
-2. **Restore using psql**:
+2. **Restore a plain backup** (`.sql.gz`) using psql:
+
+   ```bash
+   gunzip -c /backups/{job_name}/pg_backup_{timestamp}.sql.gz | psql -h hostname -U username -d database_name
+   ```
+
+   For an uncompressed `.sql` backup (`compress: "0"`), use `psql -f`:
 
    ```bash
    psql -h hostname -U username -d database_name -f /backups/{job_name}/pg_backup_{timestamp}.sql
    ```
 
-   Or using the pg_restore tool (for custom format backups):
+3. **Restore a custom backup** (`.dump`) using pg_restore:
 
    ```bash
    pg_restore -h hostname -U username -d database_name /backups/{job_name}/pg_backup_{timestamp}.dump
    ```
+
+   Archives made by the pg_dump 18 shipped in the Docker image must be restored with `pg_restore` 18 or newer; older versions cannot read them.
 
 ## MySQL Backups and Restoration
 

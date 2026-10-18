@@ -921,3 +921,43 @@ func TestMarkEnvVarOptional(t *testing.T) {
 	result := MarkEnvVarOptional("TEST_VAR")
 	assert.Equal(t, "${?TEST_VAR}", result)
 }
+
+func TestValidate_PostgresFormat(t *testing.T) {
+	newConfig := func(options map[string]string) Config {
+		return Config{
+			Storage: StorageConfig{Type: "local", Local: LocalConfig{Directory: "/backups"}},
+			Jobs: []JobConfig{{
+				Name:     "pg",
+				Type:     "postgres",
+				Schedule: "0 2 * * *",
+				PostgresConfig: &PostgresConfig{
+					Host:     "localhost",
+					Database: "db",
+					Options:  options,
+				},
+				RetentionPolicy: RetentionPolicy{Type: "count", Value: 7},
+			}},
+		}
+	}
+
+	for _, format := range []string{"", "p", "plain", "c", "custom", "Custom"} {
+		t.Run("accepts "+format, func(t *testing.T) {
+			cfg := newConfig(map[string]string{"format": format})
+			assert.NoError(t, cfg.Validate())
+		})
+	}
+
+	for _, format := range []string{"d", "directory", "t", "tar", "bogus"} {
+		t.Run("rejects "+format, func(t *testing.T) {
+			cfg := newConfig(map[string]string{"format": format})
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unsupported format '"+format+"'")
+		})
+	}
+
+	t.Run("no options", func(t *testing.T) {
+		cfg := newConfig(nil)
+		assert.NoError(t, cfg.Validate())
+	})
+}
