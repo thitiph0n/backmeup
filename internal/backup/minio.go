@@ -99,7 +99,7 @@ func (m *MinioExecutor) configureMC(ctx context.Context) (string, error) {
 	return alias, nil
 }
 
-func (m *MinioExecutor) Execute(ctx context.Context) error {
+func (m *MinioExecutor) Execute(ctx context.Context) (err error) {
 	m.LogBackupInfo("Starting MinIO backup using mc mirror")
 
 	if err := m.checkMCInstalled(); err != nil {
@@ -114,6 +114,11 @@ func (m *MinioExecutor) Execute(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to prepare backup directory: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			m.removeBackup(backupDirName)
+		}
+	}()
 
 	alias, err := m.configureMC(ctx)
 	if err != nil {

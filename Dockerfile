@@ -26,12 +26,12 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
     fi
 
 # Create final image
-FROM alpine:3.22
+FROM alpine:3.23
 ARG TARGETPLATFORM
 
 # Install runtime dependencies for database backup utilities
 RUN apk add --no-cache \
-    postgresql-client \
+    postgresql18-client \
     mysql-client \
     bash \
     tzdata \

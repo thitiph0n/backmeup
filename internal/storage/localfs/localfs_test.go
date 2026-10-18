@@ -150,3 +150,29 @@ func TestDelete_Dir(t *testing.T) {
 	_, err = os.Stat(entries[0].Key)
 	assert.True(t, os.IsNotExist(err))
 }
+
+func TestRemove(t *testing.T) {
+	s, dir := newStorage(t)
+
+	w, err := s.NewWriter("myjob", "backup.sql")
+	require.NoError(t, err)
+	w.Close()
+
+	require.NoError(t, s.Remove("myjob", "backup.sql"))
+
+	_, err = os.Stat(filepath.Join(dir, "myjob", "backup.sql"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestRemove_Dir(t *testing.T) {
+	s, _ := newStorage(t)
+
+	path, err := s.NewDir("myjob", "minio_backup")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(path, "obj"), []byte("x"), 0644))
+
+	require.NoError(t, s.Remove("myjob", "minio_backup"))
+
+	_, err = os.Stat(path)
+	assert.True(t, os.IsNotExist(err))
+}

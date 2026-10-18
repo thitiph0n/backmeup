@@ -65,6 +65,10 @@ func (s *Storage) Delete(entry storage.BackupEntry) error {
 	return os.RemoveAll(entry.Key)
 }
 
+func (s *Storage) Remove(jobName, name string) error {
+	return os.RemoveAll(filepath.Join(s.directory, jobName, name))
+}
+
 func GenerateFileName(prefix, extension string) string {
 	return fmt.Sprintf("%s_%s%s", prefix, time.Now().Format("20060102-150405"), extension)
 }

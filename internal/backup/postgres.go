@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/thitiph0n/backmeup/internal/config"
 	"github.com/thitiph0n/backmeup/internal/storage"
@@ -31,13 +32,7 @@ func NewPostgresExecutor(jobConfig config.JobConfig, store storage.Storage) (Exe
 func (p *PostgresExecutor) Execute(ctx context.Context) error {
 	p.LogBackupInfo("Starting PostgreSQL backup")
 
-	filename := localfs.GenerateFileName("pg_backup", ".sql")
-
-	writer, err := p.Storage.NewWriter(p.Config.Name, filename)
-	if err != nil {
-		return fmt.Errorf("failed to prepare backup file: %w", err)
-	}
-	defer writer.Close()
+	filename := localfs.GenerateFileName("pg_backup", dumpExtension(p.Config.PostgresConfig.Options["format"]))
 
 	cmdArgs := []string{}
 
@@ -84,15 +79,25 @@ func (p *PostgresExecutor) Execute(ctx context.Context) error {
 
 	cmd := exec.CommandContext(ctx, "pg_dump", cmdArgs...)
 	cmd.Env = env
-	cmd.Stdout = writer
 	cmd.Stderr = os.Stderr
 
 	p.LogBackupInfo(fmt.Sprintf("Running pg_dump to %s", filename))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pg_dump failed: %w", err)
+	if err := p.dumpToFile(cmd, filename); err != nil {
+		return err
 	}
 
 	p.LogBackupInfo(fmt.Sprintf("PostgreSQL backup completed successfully: %s", filename))
 
 	return nil
+}
+
+func dumpExtension(format string) string {
+	switch strings.ToLower(format) {
+	case "c", "custom":
+		return ".dump"
+	case "t", "tar":
+		return ".tar"
+	default:
+		return ".sql"
+	}
 }

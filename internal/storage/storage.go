@@ -16,4 +16,5 @@ type Storage interface {
 	NewDir(jobName, dirName string) (string, error)
 	List(jobName string) ([]BackupEntry, error)
 	Delete(entry BackupEntry) error
+	Remove(jobName, name string) error
 }
