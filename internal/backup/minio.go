@@ -1,11 +1,13 @@
 package backup
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -15,9 +17,19 @@ import (
 	"github.com/thitiph0n/backmeup/internal/storage/localfs"
 )
 
+const (
+	minioDownloadWorkers   = 4
+	minioProgressLogPeriod = 10 * time.Second
+)
+
+type objectStore interface {
+	ListObjects(ctx context.Context, bucketName string, opts minio.ListObjectsOptions) <-chan minio.ObjectInfo
+	FGetObject(ctx context.Context, bucketName, objectName, filePath string, opts minio.GetObjectOptions) error
+}
+
 type MinioExecutor struct {
 	BaseExecutor
-	client *minio.Client
+	client objectStore
 }
 
 func NewMinioExecutor(jobConfig config.JobConfig, store storage.Storage) (Executor, error) {
@@ -42,69 +54,8 @@ func NewMinioExecutor(jobConfig config.JobConfig, store storage.Storage) (Execut
 	}, nil
 }
 
-func (m *MinioExecutor) checkMCInstalled() error {
-	cmd := exec.Command("mc", "version")
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("MinIO Client (mc) is not installed or not in PATH. Please install mc tool: %w", err)
-	}
-	return nil
-}
-
-func (m *MinioExecutor) configureMC(ctx context.Context) (string, error) {
-	cfg := m.Config.MinIOConfig
-
-	alias := fmt.Sprintf("backmeup-%s", m.Config.Name)
-
-	var stdout, stderr bytes.Buffer
-
-	endpoint := cfg.Endpoint
-	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
-		if cfg.UseSSL {
-			endpoint = "https://" + endpoint
-		} else {
-			endpoint = "http://" + endpoint
-		}
-	}
-
-	schemeAndHost := endpoint
-
-	slashPos := 0
-	if strings.HasPrefix(endpoint, "https://") {
-		slashPos = 8
-	} else if strings.HasPrefix(endpoint, "http://") {
-		slashPos = 7
-	}
-
-	if pathSlashPos := strings.Index(endpoint[slashPos:], "/"); pathSlashPos != -1 {
-		schemeAndHost = endpoint[:slashPos+pathSlashPos+1]
-	} else if !strings.HasSuffix(endpoint, "/") {
-		schemeAndHost = endpoint + "/"
-	}
-
-	endpoint = schemeAndHost
-
-	cmd := exec.CommandContext(ctx, "mc", "alias", "set", alias,
-		endpoint, cfg.AccessKey, cfg.SecretKey)
-
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	m.LogBackupInfo(fmt.Sprintf("Configuring MinIO client with endpoint: %s", endpoint))
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to configure mc: %w, stderr: %s", err, stderr.String())
-	}
-
-	return alias, nil
-}
-
-func (m *MinioExecutor) Execute(ctx context.Context) error {
-	m.LogBackupInfo("Starting MinIO backup using mc mirror")
-
-	if err := m.checkMCInstalled(); err != nil {
-		return err
-	}
+func (m *MinioExecutor) Execute(ctx context.Context) (err error) {
+	m.LogBackupInfo("Starting MinIO backup")
 
 	cfg := m.Config.MinIOConfig
 
@@ -114,60 +65,146 @@ func (m *MinioExecutor) Execute(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to prepare backup directory: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			m.discardBackup(backupDirName)
+		}
+	}()
 
-	alias, err := m.configureMC(ctx)
+	prefix := sourcePrefix(cfg.SourceFolder)
+	m.LogBackupInfo(fmt.Sprintf("Downloading s3://%s/%s to %s", cfg.BucketName, prefix, backupDir))
+
+	count, err := m.downloadAll(ctx, backupDir, prefix)
 	if err != nil {
+		return fmt.Errorf("minio download failed: %w", err)
+	}
+
+	if count == 0 {
+		return fmt.Errorf("no objects found in s3://%s/%s", cfg.BucketName, prefix)
+	}
+
+	if err = m.Storage.Commit(m.Config.Name, backupDirName); err != nil {
 		return err
 	}
 
-	sourcePath := fmt.Sprintf("%s/%s", alias, cfg.BucketName)
-	if cfg.SourceFolder != "" {
-		if !strings.HasSuffix(cfg.SourceFolder, "/") {
-			sourcePath = fmt.Sprintf("%s/%s/", sourcePath, cfg.SourceFolder)
-		} else {
-			sourcePath = fmt.Sprintf("%s/%s", sourcePath, cfg.SourceFolder)
-		}
+	m.LogBackupInfo(fmt.Sprintf("MinIO backup completed successfully: %s (%d objects)", backupDirName, count))
+
+	return nil
+}
+
+func (m *MinioExecutor) downloadAll(ctx context.Context, backupDir, prefix string) (int64, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		firstErr   error
+		errOnce    sync.Once
+		downloaded atomic.Int64
+		wg         sync.WaitGroup
+	)
+	fail := func(err error) {
+		errOnce.Do(func() {
+			firstErr = err
+			cancel()
+		})
 	}
 
-	m.LogBackupInfo(fmt.Sprintf("Mirroring from %s to %s", sourcePath, backupDir))
-
-	var stdout, stderr bytes.Buffer
-
-	cmd := exec.CommandContext(ctx, "mc", "mirror", "--preserve", sourcePath, backupDir)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start mc mirror: %w", err)
+	jobs := make(chan minio.ObjectInfo)
+	for i := 0; i < minioDownloadWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for obj := range jobs {
+				if err := m.downloadObject(ctx, backupDir, prefix, obj); err != nil {
+					fail(err)
+					continue
+				}
+				downloaded.Add(1)
+			}
+		}()
 	}
 
-	done := make(chan struct{})
+	stopProgress := make(chan struct{})
 	go func() {
-		defer close(done)
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(minioProgressLogPeriod)
 		defer ticker.Stop()
-
 		for {
 			select {
 			case <-ticker.C:
-				m.LogBackupInfo("MC mirror in progress...")
-			case <-ctx.Done():
-				return
-			case <-done:
+				m.LogBackupInfo(fmt.Sprintf("MinIO download in progress: %d objects so far", downloaded.Load()))
+			case <-stopProgress:
 				return
 			}
 		}
 	}()
 
-	err = cmd.Wait()
-	done <- struct{}{}
+	listing := m.client.ListObjects(ctx, m.Config.MinIOConfig.BucketName, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	})
+feed:
+	for obj := range listing {
+		if obj.Err != nil {
+			fail(fmt.Errorf("failed to list objects: %w", obj.Err))
+			break
+		}
+		if strings.HasSuffix(obj.Key, "/") {
+			continue
+		}
+		select {
+		case jobs <- obj:
+		case <-ctx.Done():
+			break feed
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	close(stopProgress)
 
+	if firstErr != nil {
+		return 0, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return downloaded.Load(), nil
+}
+
+func (m *MinioExecutor) downloadObject(ctx context.Context, backupDir, prefix string, obj minio.ObjectInfo) error {
+	dest, err := objectDestination(backupDir, prefix, obj.Key)
 	if err != nil {
-		return fmt.Errorf("mc mirror failed: %w, stderr: %s", err, stderr.String())
+		return err
 	}
 
-	m.LogBackupInfo(fmt.Sprintf("MinIO backup completed successfully to %s", backupDir))
-	m.LogBackupInfo(fmt.Sprintf("mc output: %s", stdout.String()))
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", obj.Key, err)
+	}
+
+	if err := m.client.FGetObject(ctx, m.Config.MinIOConfig.BucketName, obj.Key, dest, minio.GetObjectOptions{}); err != nil {
+		return fmt.Errorf("failed to download %s: %w", obj.Key, err)
+	}
+
+	if !obj.LastModified.IsZero() {
+		if err := os.Chtimes(dest, obj.LastModified, obj.LastModified); err != nil {
+			return fmt.Errorf("failed to set modification time for %s: %w", obj.Key, err)
+		}
+	}
 
 	return nil
+}
+
+func sourcePrefix(folder string) string {
+	folder = strings.Trim(folder, "/")
+	if folder == "" {
+		return ""
+	}
+	return folder + "/"
+}
+
+func objectDestination(backupDir, prefix, key string) (string, error) {
+	rel := filepath.FromSlash(strings.TrimPrefix(key, prefix))
+	if !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("object key %q escapes the backup directory", key)
+	}
+	return filepath.Join(backupDir, rel), nil
 }

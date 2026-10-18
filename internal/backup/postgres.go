@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/thitiph0n/backmeup/internal/config"
 	"github.com/thitiph0n/backmeup/internal/storage"
@@ -31,13 +32,7 @@ func NewPostgresExecutor(jobConfig config.JobConfig, store storage.Storage) (Exe
 func (p *PostgresExecutor) Execute(ctx context.Context) error {
 	p.LogBackupInfo("Starting PostgreSQL backup")
 
-	filename := localfs.GenerateFileName("pg_backup", ".sql")
-
-	writer, err := p.Storage.NewWriter(p.Config.Name, filename)
-	if err != nil {
-		return fmt.Errorf("failed to prepare backup file: %w", err)
-	}
-	defer writer.Close()
+	filename := localfs.GenerateFileName("pg_backup", dumpExtension(p.Config.PostgresConfig.Options))
 
 	cmdArgs := []string{}
 
@@ -66,8 +61,11 @@ func (p *PostgresExecutor) Execute(ctx context.Context) error {
 		"--clean",
 		"--if-exists",
 		"--no-owner",
-		"--compress=9",
 	)
+
+	if _, ok := p.Config.PostgresConfig.Options["compress"]; !ok {
+		cmdArgs = append(cmdArgs, "--compress=9")
+	}
 
 	for key, value := range p.Config.PostgresConfig.Options {
 		if value == "" {
@@ -84,15 +82,35 @@ func (p *PostgresExecutor) Execute(ctx context.Context) error {
 
 	cmd := exec.CommandContext(ctx, "pg_dump", cmdArgs...)
 	cmd.Env = env
-	cmd.Stdout = writer
 	cmd.Stderr = os.Stderr
 
 	p.LogBackupInfo(fmt.Sprintf("Running pg_dump to %s", filename))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pg_dump failed: %w", err)
+	if err := p.dumpToFile(cmd, filename); err != nil {
+		return err
 	}
 
 	p.LogBackupInfo(fmt.Sprintf("PostgreSQL backup completed successfully: %s", filename))
 
 	return nil
+}
+
+func dumpExtension(options map[string]string) string {
+	if config.IsCustomPostgresFormat(options["format"]) {
+		return ".dump"
+	}
+
+	compress, ok := options["compress"]
+	if !ok {
+		return ".sql.gz"
+	}
+	switch method := strings.ToLower(compress); {
+	case method == "0" || method == "none":
+		return ".sql"
+	case strings.HasPrefix(method, "lz4"):
+		return ".sql.lz4"
+	case strings.HasPrefix(method, "zstd"):
+		return ".sql.zst"
+	default:
+		return ".sql.gz"
+	}
 }

@@ -202,6 +202,22 @@ func MarkEnvVarOptional(varName string) string {
 	return fmt.Sprintf("${?%s}", varName)
 }
 
+func IsCustomPostgresFormat(format string) bool {
+	switch strings.ToLower(format) {
+	case "c", "custom":
+		return true
+	}
+	return false
+}
+
+func isStreamablePostgresFormat(format string) bool {
+	switch strings.ToLower(format) {
+	case "", "p", "plain":
+		return true
+	}
+	return IsCustomPostgresFormat(format)
+}
+
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
 	// Check server configuration
@@ -241,6 +257,9 @@ func (c *Config) Validate() error {
 			}
 			if job.PostgresConfig.Database == "" {
 				return fmt.Errorf("postgres job '%s' must have a database name", job.Name)
+			}
+			if format := job.PostgresConfig.Options["format"]; !isStreamablePostgresFormat(format) {
+				return fmt.Errorf("postgres job '%s' has unsupported format '%s': only plain (p) and custom (c) can be written to a single backup file", job.Name, format)
 			}
 		case "mysql":
 			if job.MySQLConfig == nil || job.MySQLConfig.ConnectionString == "" {

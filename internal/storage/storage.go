@@ -16,4 +16,7 @@ type Storage interface {
 	NewDir(jobName, dirName string) (string, error)
 	List(jobName string) ([]BackupEntry, error)
 	Delete(entry BackupEntry) error
+	Commit(jobName, name string) error
+	Discard(jobName, name string) error
+	SweepPartial(jobName string) error
 }

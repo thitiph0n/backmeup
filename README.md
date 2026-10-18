@@ -7,7 +7,7 @@ Lightweight, configuration-driven backup tool for databases and object storage.
 ## Features
 
 - YAML config — GitOps friendly, version-controllable
-- **Sources**: PostgreSQL (`pg_dump`), MySQL (`mysqldump`), MinIO (`mc mirror`)
+- **Sources**: PostgreSQL (`pg_dump`), MySQL (`mysqldump`), MinIO / S3 (`minio-go`)
 - **Scheduling**: cron syntax per job
 - **Retention**: count-based or days-based cleanup
 - **Storage**: local filesystem

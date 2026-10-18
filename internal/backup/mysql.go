@@ -34,12 +34,6 @@ func (m *MySQLExecutor) Execute(ctx context.Context) error {
 
 	filename := localfs.GenerateFileName("mysql_backup", ".sql")
 
-	writer, err := m.Storage.NewWriter(m.Config.Name, filename)
-	if err != nil {
-		return fmt.Errorf("failed to prepare backup file: %w", err)
-	}
-	defer writer.Close()
-
 	connStr := m.Config.MySQLConfig.ConnectionString
 
 	parts := strings.Split(connStr, "/")
@@ -72,12 +66,11 @@ func (m *MySQLExecutor) Execute(ctx context.Context) error {
 		"--quick",
 	)
 
-	cmd.Stdout = writer
 	cmd.Stderr = os.Stderr
 
 	m.LogBackupInfo(fmt.Sprintf("Running mysqldump to %s", filename))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("mysqldump failed: %w", err)
+	if err := m.dumpToFile(cmd, filename); err != nil {
+		return err
 	}
 
 	m.LogBackupInfo(fmt.Sprintf("MySQL backup completed successfully: %s", filename))

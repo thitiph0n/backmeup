@@ -26,30 +26,15 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
     fi
 
 # Create final image
-FROM alpine:3.22
-ARG TARGETPLATFORM
+FROM alpine:3.23
 
 # Install runtime dependencies for database backup utilities
 RUN apk add --no-cache \
-    postgresql-client \
+    postgresql18-client \
     mysql-client \
     bash \
     tzdata \
-    ca-certificates \
-    curl
-
-# Install MinIO client with multi-architecture support
-ARG TARGETPLATFORM
-RUN if [ "$TARGETPLATFORM" = "linux/amd64" ] || [ -z "$TARGETPLATFORM" ]; then \
-      curl -O https://dl.min.io/client/mc/release/linux-amd64/mc; \
-    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-      curl -O https://dl.min.io/client/mc/release/linux-arm64/mc; \
-    else \
-      echo "Unsupported platform: $TARGETPLATFORM, falling back to amd64" && \
-      curl -O https://dl.min.io/client/mc/release/linux-amd64/mc; \
-    fi && \
-    chmod +x mc && \
-    mv mc /usr/local/bin/
+    ca-certificates
 
 # Set working directory
 WORKDIR /app

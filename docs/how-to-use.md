@@ -115,10 +115,21 @@ jobs:
       options: # Additional pg_dump options
         schema-only: "" # Backup schema only, no data
         exclude-table: "logs" # Exclude specific tables
-        format: "custom" # Use custom format (c|d|t|p)
+        format: "custom" # plain (p, default) or custom (c)
 ```
 
 The `options` field allows you to specify any pg_dump option. Options without values should use an empty string (`""`).
+
+Only the `plain` (`p`) and `custom` (`c`) formats are supported, because the dump is streamed into a single backup file. The `directory` (`d`) and `tar` (`t`) formats are rejected when the config is loaded.
+
+By default BackMeUp passes `--compress=9`. The backup file name depends on the format:
+
+| `format` | `compress` | File |
+|---|---|---|
+| plain (default) | unset or `1`-`9` / `gzip` | `pg_backup_{timestamp}.sql.gz` |
+| plain | `0` or `none` | `pg_backup_{timestamp}.sql` |
+| plain | `lz4` / `zstd` | `pg_backup_{timestamp}.sql.lz4` / `.sql.zst` |
+| custom | any | `pg_backup_{timestamp}.dump` |
 
 BackMeUp uses the `pg_dump` command-line tool, so make sure it's available in your environment or use the provided Docker image.
 
@@ -195,6 +206,8 @@ retention_policy:
   value: 30 # Keep backups for 30 days
 ```
 
+Backups are written under a `.partial` name and renamed once they finish. Retention never counts `.partial` entries, and any left behind by a crash or restart are removed when BackMeUp starts. On shutdown, running jobs are cancelled and their partial output is removed.
+
 ## Monitoring and Healthchecks
 
 BackMeUp provides an HTTP server for monitoring and healthchecks:
@@ -215,7 +228,7 @@ You can disable the server by setting `server.enabled` to `false`.
 
 ## MinIO Backups and Restoration
 
-BackMeUp supports backing up MinIO object storage using the MinIO Client (mc) tool.
+BackMeUp supports backing up MinIO and other S3-compatible object storage using the built-in MinIO Go SDK. No external tools are required.
 
 ### Configuration
 
@@ -242,29 +255,36 @@ jobs:
 When the MinIO backup job executes, it:
 
 1. Creates a timestamped directory for the backup
-2. Configures the MinIO Client (mc) with your server credentials
-3. Uses `mc mirror --preserve` to create an exact copy of all files from the specified bucket/folder while maintaining all metadata and file attributes
+2. Recursively lists every object under the bucket (or `source_folder` if set)
+3. Downloads the objects in parallel (4 workers) into the backup directory, keeping the key layout relative to `source_folder`
+4. Sets each file's modification time to the object's last-modified time
+
+If any object fails to download, the partial backup directory is removed and the job is reported as failed. Directory marker keys (ending in `/`) are skipped, and object keys that would escape the backup directory (for example `../x`) fail the job. If no objects are found (an empty bucket or a `source_folder` that matches nothing), the job fails instead of storing an empty backup, so a typo in the config or an accidentally emptied bucket cannot rotate real backups out of retention.
+
+Only object content and last-modified time are backed up. Content type, user metadata, tags and versions are not preserved.
 
 ### How to Restore from MinIO Backup
 
-To restore data from a MinIO backup:
+Restore with [rclone](https://rclone.org/), which works with MinIO and any S3-compatible service.
 
-1. **Install MinIO Client**: If not already installed
+1. **Install rclone**: If not already installed
 
    ```bash
    # For macOS
-   brew install minio/stable/mc
+   brew install rclone
 
    # For Linux
-   wget https://dl.min.io/client/mc/release/linux-amd64/mc
-   chmod +x mc
-   sudo mv mc /usr/local/bin/
+   curl https://rclone.org/install.sh | sudo bash
    ```
 
-2. **Configure MinIO Client**:
+2. **Configure an S3 remote**: Run the interactive `rclone config` (choose `s3`, provider `Minio`), or define the remote with environment variables
 
    ```bash
-   mc alias set myminio https://minio.example.com:9000 ACCESSKEY SECRETKEY
+   export RCLONE_CONFIG_MYMINIO_TYPE=s3
+   export RCLONE_CONFIG_MYMINIO_PROVIDER=Minio
+   export RCLONE_CONFIG_MYMINIO_ENDPOINT=https://minio.example.com:9000
+   export RCLONE_CONFIG_MYMINIO_ACCESS_KEY_ID=ACCESSKEY
+   export RCLONE_CONFIG_MYMINIO_SECRET_ACCESS_KEY=SECRETKEY
    ```
 
 3. **Locate your backup**: Find the backup directory you want to restore from
@@ -273,23 +293,28 @@ To restore data from a MinIO backup:
    ls /backups/{job_name}/
    ```
 
-4. **Mirror files back to MinIO**:
+4. **Preview, then copy files back to the bucket**: `--dry-run` shows what would be transferred without changing anything
 
    ```bash
-   mc mirror --preserve /backups/{job_name}/minio_backup_{timestamp}/ myminio/bucket/
+   rclone copy /backups/{job_name}/minio_backup_{timestamp}/ myminio:bucket --dry-run
+   rclone copy /backups/{job_name}/minio_backup_{timestamp}/ myminio:bucket
    ```
 
-5. **Verify the restoration**: List files in your bucket to confirm
+   If the backup was taken with `source_folder`, restore into the same folder: `myminio:bucket/data`.
+
+5. **Verify the restoration**: Compare the backup with the bucket
 
    ```bash
-   mc ls myminio/bucket/
+   rclone check /backups/{job_name}/minio_backup_{timestamp}/ myminio:bucket
    ```
 
-For selective restoration, you can specify specific paths:
+For selective restoration, point both sides at a sub-path:
 
 ```bash
-mc mirror --preserve /backups/{job_name}/minio_backup_{timestamp}/specific/folder/ myminio/bucket/specific/folder/
+rclone copy /backups/{job_name}/minio_backup_{timestamp}/specific/folder/ myminio:bucket/specific/folder/
 ```
+
+Because only content and last-modified time are backed up, restored objects get the modification time as their last-modified metadata where the server allows it, and lose any content type or custom metadata they originally had.
 
 ## PostgreSQL Backups and Restoration
 
@@ -305,17 +330,25 @@ To restore a PostgreSQL backup:
    ls /backups/{job_name}/
    ```
 
-2. **Restore using psql**:
+2. **Restore a plain backup** (`.sql.gz`) using psql:
+
+   ```bash
+   gunzip -c /backups/{job_name}/pg_backup_{timestamp}.sql.gz | psql -h hostname -U username -d database_name
+   ```
+
+   For an uncompressed `.sql` backup (`compress: "0"`), use `psql -f`:
 
    ```bash
    psql -h hostname -U username -d database_name -f /backups/{job_name}/pg_backup_{timestamp}.sql
    ```
 
-   Or using the pg_restore tool (for custom format backups):
+3. **Restore a custom backup** (`.dump`) using pg_restore:
 
    ```bash
    pg_restore -h hostname -U username -d database_name /backups/{job_name}/pg_backup_{timestamp}.dump
    ```
+
+   Archives made by the pg_dump 18 shipped in the Docker image must be restored with `pg_restore` 18 or newer; older versions cannot read them.
 
 ## MySQL Backups and Restoration
 

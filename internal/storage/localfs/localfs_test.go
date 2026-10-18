@@ -18,6 +18,14 @@ func newStorage(t *testing.T) (*Storage, string) {
 	return New(config.LocalConfig{Directory: dir}), dir
 }
 
+func writeBackup(t *testing.T, s *Storage, job, name string) {
+	t.Helper()
+	w, err := s.NewWriter(job, name)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	require.NoError(t, s.Commit(job, name))
+}
+
 func TestGenerateFileName(t *testing.T) {
 	tests := []struct {
 		prefix    string
@@ -46,7 +54,7 @@ func TestNewWriter(t *testing.T) {
 	require.NoError(t, err)
 	defer w.Close()
 
-	_, err = os.Stat(filepath.Join(dir, "myjob", "backup.sql"))
+	_, err = os.Stat(filepath.Join(dir, "myjob", "backup.sql.partial"))
 	assert.NoError(t, err)
 
 	_, err = w.Write([]byte("test data"))
@@ -69,7 +77,7 @@ func TestNewDir(t *testing.T) {
 	result, err := s.NewDir("myjob", "minio_backup_20240101-120000")
 	require.NoError(t, err)
 
-	expected := filepath.Join(dir, "myjob", "minio_backup_20240101-120000")
+	expected := filepath.Join(dir, "myjob", "minio_backup_20240101-120000.partial")
 	assert.Equal(t, expected, result)
 
 	info, err := os.Stat(result)
@@ -97,13 +105,8 @@ func TestList_Empty(t *testing.T) {
 func TestList(t *testing.T) {
 	s, _ := newStorage(t)
 
-	w1, err := s.NewWriter("myjob", "pg_backup_20240101-120000.sql")
-	require.NoError(t, err)
-	w1.Close()
-
-	w2, err := s.NewWriter("myjob", "pg_backup_20240102-120000.sql")
-	require.NoError(t, err)
-	w2.Close()
+	writeBackup(t, s, "myjob", "pg_backup_20240101-120000.sql")
+	writeBackup(t, s, "myjob", "pg_backup_20240102-120000.sql")
 
 	entries, err := s.List("myjob")
 	require.NoError(t, err)
@@ -117,9 +120,7 @@ func TestList(t *testing.T) {
 func TestDelete_File(t *testing.T) {
 	s, _ := newStorage(t)
 
-	w, err := s.NewWriter("myjob", "backup.sql")
-	require.NoError(t, err)
-	w.Close()
+	writeBackup(t, s, "myjob", "backup.sql")
 
 	entries, err := s.List("myjob")
 	require.NoError(t, err)
@@ -140,6 +141,7 @@ func TestDelete_Dir(t *testing.T) {
 	f, err := os.Create(filepath.Join(dirPath, "data.bin"))
 	require.NoError(t, err)
 	f.Close()
+	require.NoError(t, s.Commit("myjob", "minio_backup_20240101-120000"))
 
 	entries, err := s.List("myjob")
 	require.NoError(t, err)
@@ -149,4 +151,126 @@ func TestDelete_Dir(t *testing.T) {
 
 	_, err = os.Stat(entries[0].Key)
 	assert.True(t, os.IsNotExist(err))
+}
+
+func TestCommit_File(t *testing.T) {
+	s, dir := newStorage(t)
+
+	w, err := s.NewWriter("myjob", "backup.sql")
+	require.NoError(t, err)
+	_, err = w.Write([]byte("data"))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+
+	require.NoError(t, s.Commit("myjob", "backup.sql"))
+
+	content, err := os.ReadFile(filepath.Join(dir, "myjob", "backup.sql"))
+	require.NoError(t, err)
+	assert.Equal(t, "data", string(content))
+	_, err = os.Stat(filepath.Join(dir, "myjob", "backup.sql.partial"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestCommit_Dir(t *testing.T) {
+	s, dir := newStorage(t)
+
+	path, err := s.NewDir("myjob", "minio_backup")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(path, "obj"), []byte("x"), 0644))
+
+	require.NoError(t, s.Commit("myjob", "minio_backup"))
+
+	assert.FileExists(t, filepath.Join(dir, "myjob", "minio_backup", "obj"))
+}
+
+func TestCommit_MissingPartial(t *testing.T) {
+	s, _ := newStorage(t)
+
+	require.Error(t, s.Commit("myjob", "nothing.sql"))
+}
+
+func TestList_IgnoresPartial(t *testing.T) {
+	s, _ := newStorage(t)
+
+	writeBackup(t, s, "myjob", "done.sql")
+	w, err := s.NewWriter("myjob", "running.sql")
+	require.NoError(t, err)
+	defer w.Close()
+	_, err = s.NewDir("myjob", "running_dir")
+	require.NoError(t, err)
+
+	entries, err := s.List("myjob")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "done.sql", filepath.Base(entries[0].Key))
+}
+
+func TestDiscard(t *testing.T) {
+	s, dir := newStorage(t)
+
+	w, err := s.NewWriter("myjob", "backup.sql")
+	require.NoError(t, err)
+	w.Close()
+	path, err := s.NewDir("myjob", "minio_backup")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(path, "obj"), []byte("x"), 0644))
+
+	require.NoError(t, s.Discard("myjob", "backup.sql"))
+	require.NoError(t, s.Discard("myjob", "minio_backup"))
+
+	entries, err := os.ReadDir(filepath.Join(dir, "myjob"))
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestDiscard_DoesNotTouchCommittedBackup(t *testing.T) {
+	s, _ := newStorage(t)
+	writeBackup(t, s, "myjob", "backup.sql")
+
+	require.NoError(t, s.Discard("myjob", "backup.sql"))
+
+	entries, err := s.List("myjob")
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+}
+
+func TestDiscardAndCommit_RejectUnsafeNames(t *testing.T) {
+	s, dir := newStorage(t)
+	writeBackup(t, s, "myjob", "keep.sql")
+
+	for _, name := range []string{"", ".", "..", "../keep.sql", "sub/keep.sql"} {
+		require.Error(t, s.Discard("myjob", name), name)
+		require.Error(t, s.Commit("myjob", name), name)
+	}
+	assert.FileExists(t, filepath.Join(dir, "myjob", "keep.sql"))
+}
+
+func TestSweepPartial(t *testing.T) {
+	s, dir := newStorage(t)
+
+	writeBackup(t, s, "myjob", "done.sql")
+	w, err := s.NewWriter("myjob", "stale.sql")
+	require.NoError(t, err)
+	w.Close()
+	path, err := s.NewDir("myjob", "stale_dir")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(path, "obj"), []byte("x"), 0644))
+	writeBackup(t, s, "otherjob", "keep.sql")
+	other, err := s.NewWriter("otherjob", "other.sql")
+	require.NoError(t, err)
+	other.Close()
+
+	require.NoError(t, s.SweepPartial("myjob"))
+
+	entries, err := os.ReadDir(filepath.Join(dir, "myjob"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "done.sql", entries[0].Name())
+	assert.FileExists(t, filepath.Join(dir, "otherjob", "other.sql.partial"))
+}
+
+func TestSweepPartial_MissingJobDir(t *testing.T) {
+	s, _ := newStorage(t)
+
+	require.NoError(t, s.SweepPartial("nope"))
 }
