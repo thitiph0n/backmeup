@@ -32,13 +32,9 @@ FROM alpine:3.23
 RUN apk add --no-cache \
     postgresql18-client \
     mysql-client \
-    minio-client \
     bash \
     tzdata \
-    ca-certificates \
-    curl
-
-RUN ln -s /usr/bin/mcli /usr/local/bin/mc
+    ca-certificates
 
 # Set working directory
 WORKDIR /app

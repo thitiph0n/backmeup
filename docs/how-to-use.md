@@ -215,7 +215,7 @@ You can disable the server by setting `server.enabled` to `false`.
 
 ## MinIO Backups and Restoration
 
-BackMeUp supports backing up MinIO object storage using the MinIO Client (mc) tool.
+BackMeUp supports backing up MinIO and other S3-compatible object storage using the built-in MinIO Go SDK. No external tools are required.
 
 ### Configuration
 
@@ -242,29 +242,36 @@ jobs:
 When the MinIO backup job executes, it:
 
 1. Creates a timestamped directory for the backup
-2. Configures the MinIO Client (mc) with your server credentials
-3. Uses `mc mirror --preserve` to create an exact copy of all files from the specified bucket/folder while maintaining all metadata and file attributes
+2. Recursively lists every object under the bucket (or `source_folder` if set)
+3. Downloads the objects in parallel (4 workers) into the backup directory, keeping the key layout relative to `source_folder`
+4. Sets each file's modification time to the object's last-modified time
+
+If any object fails to download, the partial backup directory is removed and the job is reported as failed. Directory marker keys (ending in `/`) are skipped, and object keys that would escape the backup directory (for example `../x`) fail the job. An empty bucket produces an empty backup directory and succeeds.
+
+Only object content and last-modified time are backed up. Content type, user metadata, tags and versions are not preserved.
 
 ### How to Restore from MinIO Backup
 
-To restore data from a MinIO backup:
+Restore with [rclone](https://rclone.org/), which works with MinIO and any S3-compatible service.
 
-1. **Install MinIO Client**: If not already installed
+1. **Install rclone**: If not already installed
 
    ```bash
    # For macOS
-   brew install minio/stable/mc
+   brew install rclone
 
    # For Linux
-   wget https://dl.min.io/client/mc/release/linux-amd64/mc
-   chmod +x mc
-   sudo mv mc /usr/local/bin/
+   curl https://rclone.org/install.sh | sudo bash
    ```
 
-2. **Configure MinIO Client**:
+2. **Configure an S3 remote**: Run the interactive `rclone config` (choose `s3`, provider `Minio`), or define the remote with environment variables
 
    ```bash
-   mc alias set myminio https://minio.example.com:9000 ACCESSKEY SECRETKEY
+   export RCLONE_CONFIG_MYMINIO_TYPE=s3
+   export RCLONE_CONFIG_MYMINIO_PROVIDER=Minio
+   export RCLONE_CONFIG_MYMINIO_ENDPOINT=https://minio.example.com:9000
+   export RCLONE_CONFIG_MYMINIO_ACCESS_KEY_ID=ACCESSKEY
+   export RCLONE_CONFIG_MYMINIO_SECRET_ACCESS_KEY=SECRETKEY
    ```
 
 3. **Locate your backup**: Find the backup directory you want to restore from
@@ -273,23 +280,28 @@ To restore data from a MinIO backup:
    ls /backups/{job_name}/
    ```
 
-4. **Mirror files back to MinIO**:
+4. **Preview, then copy files back to the bucket**: `--dry-run` shows what would be transferred without changing anything
 
    ```bash
-   mc mirror --preserve /backups/{job_name}/minio_backup_{timestamp}/ myminio/bucket/
+   rclone copy /backups/{job_name}/minio_backup_{timestamp}/ myminio:bucket --dry-run
+   rclone copy /backups/{job_name}/minio_backup_{timestamp}/ myminio:bucket
    ```
 
-5. **Verify the restoration**: List files in your bucket to confirm
+   If the backup was taken with `source_folder`, restore into the same folder: `myminio:bucket/data`.
+
+5. **Verify the restoration**: Compare the backup with the bucket
 
    ```bash
-   mc ls myminio/bucket/
+   rclone check /backups/{job_name}/minio_backup_{timestamp}/ myminio:bucket
    ```
 
-For selective restoration, you can specify specific paths:
+For selective restoration, point both sides at a sub-path:
 
 ```bash
-mc mirror --preserve /backups/{job_name}/minio_backup_{timestamp}/specific/folder/ myminio/bucket/specific/folder/
+rclone copy /backups/{job_name}/minio_backup_{timestamp}/specific/folder/ myminio:bucket/specific/folder/
 ```
+
+Because only content and last-modified time are backed up, restored objects get the modification time as their last-modified metadata where the server allows it, and lose any content type or custom metadata they originally had.
 
 ## PostgreSQL Backups and Restoration
 
